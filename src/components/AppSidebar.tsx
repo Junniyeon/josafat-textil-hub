@@ -34,7 +34,7 @@ export function AppSidebar() {
   const isCollapsed = state === 'collapsed';
 
   const filteredItems = menuItems.filter(item => 
-    user && item.roles.includes(user.rol)
+    user && item.roles.some(role => user.roles.includes(role as any))
   );
 
   return (
@@ -88,7 +88,9 @@ export function AppSidebar() {
           <div className="mb-3">
             <p className="text-sm font-medium text-sidebar-foreground">{user.nombre}</p>
             <p className="text-xs text-sidebar-foreground/70">{user.email}</p>
-            <p className="text-xs text-sidebar-primary font-medium mt-1 capitalize">{user.rol}</p>
+            <p className="text-xs text-sidebar-primary font-medium mt-1 capitalize">
+              {user.roles.join(', ')}
+            </p>
           </div>
         )}
         <Button

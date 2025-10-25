@@ -40,9 +40,9 @@ interface Usuario {
 }
 
 const Users = () => {
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
 
-  if (user?.rol !== 'admin') {
+  if (!hasRole('admin')) {
     return (
       <div className="p-6">
         <Card>

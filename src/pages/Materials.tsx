@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -26,19 +28,17 @@ interface Material {
   id: string;
   codigo: string;
   nombre: string;
-  descripcion: string;
+  descripcion: string | null;
   unidad: string;
   stock: number;
-  stockMinimo: number;
+  stock_minimo: number;
   precio: number;
 }
 
 const Materials = () => {
-  const [materials, setMaterials] = useState<Material[]>([
-    { id: '1', codigo: 'TEL-001', nombre: 'Tela Algodón', descripcion: 'Tela 100% algodón', unidad: 'metros', stock: 150, stockMinimo: 50, precio: 12.50 },
-    { id: '2', codigo: 'HIL-001', nombre: 'Hilo Poliéster', descripcion: 'Hilo para costura', unidad: 'kg', stock: 80, stockMinimo: 20, precio: 8.00 },
-    { id: '3', codigo: 'BOT-001', nombre: 'Botones Plástico', descripcion: 'Botones blancos', unidad: 'unidades', stock: 5000, stockMinimo: 1000, precio: 0.10 },
-  ]);
+  const { hasRole } = useAuth();
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -49,9 +49,32 @@ const Materials = () => {
     descripcion: '',
     unidad: '',
     stock: 0,
-    stockMinimo: 0,
+    stock_minimo: 0,
     precio: 0,
   });
+
+  // Cargar materiales desde la base de datos
+  useEffect(() => {
+    loadMaterials();
+  }, []);
+
+  const loadMaterials = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('materiales')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setMaterials(data || []);
+    } catch (error: any) {
+      console.error('Error cargando materiales:', error);
+      toast.error('Error al cargar materiales');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredMaterials = materials.filter(m =>
     m.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -59,43 +82,95 @@ const Materials = () => {
   );
 
   const handleAdd = () => {
+    if (!hasRole('admin') && !hasRole('almacenero')) {
+      toast.error('No tienes permisos para agregar materiales');
+      return;
+    }
     setEditingMaterial(null);
-    setFormData({ codigo: '', nombre: '', descripcion: '', unidad: '', stock: 0, stockMinimo: 0, precio: 0 });
+    setFormData({ codigo: '', nombre: '', descripcion: '', unidad: '', stock: 0, stock_minimo: 0, precio: 0 });
     setIsDialogOpen(true);
   };
 
   const handleEdit = (material: Material) => {
+    if (!hasRole('admin') && !hasRole('almacenero')) {
+      toast.error('No tienes permisos para editar materiales');
+      return;
+    }
     setEditingMaterial(material);
     setFormData(material);
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
+    if (!hasRole('admin')) {
+      toast.error('Solo administradores pueden eliminar materiales');
+      return;
+    }
+
     if (confirm('¿Estás seguro de eliminar este material?')) {
-      setMaterials(materials.filter(m => m.id !== id));
-      toast.success('Material eliminado correctamente');
+      try {
+        const { error } = await supabase
+          .from('materiales')
+          .delete()
+          .eq('id', id);
+
+        if (error) throw error;
+
+        await loadMaterials();
+        toast.success('Material eliminado correctamente');
+      } catch (error: any) {
+        console.error('Error eliminando material:', error);
+        toast.error('Error al eliminar material');
+      }
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.codigo || !formData.nombre) {
       toast.error('Por favor completa los campos obligatorios');
       return;
     }
 
-    if (editingMaterial) {
-      setMaterials(materials.map(m => m.id === editingMaterial.id ? { ...m, ...formData } : m));
-      toast.success('Material actualizado correctamente');
-    } else {
-      const newMaterial: Material = {
-        id: Date.now().toString(),
-        ...formData as Material,
-      };
-      setMaterials([...materials, newMaterial]);
-      toast.success('Material agregado correctamente');
-    }
+    try {
+      if (editingMaterial) {
+        const { error } = await supabase
+          .from('materiales')
+          .update({
+            codigo: formData.codigo,
+            nombre: formData.nombre,
+            descripcion: formData.descripcion || null,
+            unidad: formData.unidad,
+            stock: formData.stock,
+            stock_minimo: formData.stock_minimo,
+            precio: formData.precio,
+          })
+          .eq('id', editingMaterial.id);
 
-    setIsDialogOpen(false);
+        if (error) throw error;
+        toast.success('Material actualizado correctamente');
+      } else {
+        const { error } = await supabase
+          .from('materiales')
+          .insert({
+            codigo: formData.codigo,
+            nombre: formData.nombre,
+            descripcion: formData.descripcion || null,
+            unidad: formData.unidad,
+            stock: formData.stock,
+            stock_minimo: formData.stock_minimo,
+            precio: formData.precio,
+          });
+
+        if (error) throw error;
+        toast.success('Material agregado correctamente');
+      }
+
+      await loadMaterials();
+      setIsDialogOpen(false);
+    } catch (error: any) {
+      console.error('Error guardando material:', error);
+      toast.error(error.message || 'Error al guardar material');
+    }
   };
 
   return (
@@ -141,39 +216,57 @@ const Materials = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredMaterials.map((material) => (
-                <TableRow key={material.id}>
-                  <TableCell className="font-medium">{material.codigo}</TableCell>
-                  <TableCell>{material.nombre}</TableCell>
-                  <TableCell className="text-muted-foreground">{material.descripcion}</TableCell>
-                  <TableCell>{material.unidad}</TableCell>
-                  <TableCell className="text-right">
-                    <span className={material.stock <= material.stockMinimo ? 'text-destructive font-medium' : ''}>
-                      {material.stock}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">{material.stockMinimo}</TableCell>
-                  <TableCell className="text-right">S/ {material.precio.toFixed(2)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(material)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(material.id)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    Cargando materiales...
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : filteredMaterials.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    No hay materiales registrados
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredMaterials.map((material) => (
+                  <TableRow key={material.id}>
+                    <TableCell className="font-medium">{material.codigo}</TableCell>
+                    <TableCell>{material.nombre}</TableCell>
+                    <TableCell className="text-muted-foreground">{material.descripcion || '-'}</TableCell>
+                    <TableCell>{material.unidad}</TableCell>
+                    <TableCell className="text-right">
+                      <span className={material.stock <= material.stock_minimo ? 'text-destructive font-medium' : ''}>
+                        {material.stock}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">{material.stock_minimo}</TableCell>
+                    <TableCell className="text-right">S/ {material.precio.toFixed(2)}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        {(hasRole('admin') || hasRole('almacenero')) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEdit(material)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {hasRole('admin') && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(material.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
@@ -240,12 +333,12 @@ const Materials = () => {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="stockMinimo">Stock Mín.</Label>
+                <Label htmlFor="stock_minimo">Stock Mín.</Label>
                 <Input
-                  id="stockMinimo"
+                  id="stock_minimo"
                   type="number"
-                  value={formData.stockMinimo}
-                  onChange={(e) => setFormData({ ...formData, stockMinimo: parseFloat(e.target.value) || 0 })}
+                  value={formData.stock_minimo}
+                  onChange={(e) => setFormData({ ...formData, stock_minimo: parseFloat(e.target.value) || 0 })}
                 />
               </div>
               <div className="space-y-2">
