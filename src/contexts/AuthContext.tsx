@@ -32,18 +32,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Configurar listener de autenticación PRIMERO
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
+        // Solo actualizaciones síncronas aquí
         setSession(session);
         
+        // Diferir operaciones asíncronas con setTimeout
         if (session?.user) {
-          // Cargar perfil y roles del usuario
-          const userData = await loadUserData(session.user);
-          setUser(userData);
+          setTimeout(() => {
+            loadUserData(session.user).then((userData) => {
+              setUser(userData);
+              setLoading(false);
+            });
+          }, 0);
         } else {
           setUser(null);
+          setLoading(false);
         }
-        
-        setLoading(false);
       }
     );
 
