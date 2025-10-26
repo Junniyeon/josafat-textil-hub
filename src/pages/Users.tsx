@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,17 +30,74 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Search, Shield } from 'lucide-react';
 import { UserRole } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Usuario {
   id: string;
   email: string;
   nombre: string;
-  rol: UserRole;
-  estado: 'activo' | 'inactivo';
+  roles: UserRole[];
 }
 
 const Users = () => {
   const { user, hasRole } = useAuth();
+  const [users, setUsers] = useState<Usuario[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<Usuario | null>(null);
+  const [formData, setFormData] = useState<{
+    email: string;
+    nombre: string;
+    password: string;
+    rol: UserRole;
+  }>({
+    email: '',
+    nombre: '',
+    password: '',
+    rol: 'produccion',
+  });
+
+  useEffect(() => {
+    if (hasRole('admin')) {
+      loadUsers();
+    }
+  }, [hasRole]);
+
+  const loadUsers = async () => {
+    try {
+      setLoading(true);
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('nombre');
+
+      if (profilesError) throw profilesError;
+
+      const usersWithRoles = await Promise.all(
+        profiles.map(async (profile) => {
+          const { data: rolesData } = await supabase
+            .from('user_roles')
+            .select('role')
+            .eq('user_id', profile.id);
+
+          return {
+            id: profile.id,
+            email: profile.email,
+            nombre: profile.nombre,
+            roles: rolesData?.map(r => r.role as UserRole) || [],
+          };
+        })
+      );
+
+      setUsers(usersWithRoles);
+    } catch (error) {
+      console.error('Error loading users');
+      toast.error('No se pudieron cargar los usuarios');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!hasRole('admin')) {
     return (
@@ -56,22 +113,6 @@ const Users = () => {
     );
   }
 
-  const [users, setUsers] = useState<Usuario[]>([
-    { id: '1', email: 'admin@josafat.com', nombre: 'Administrador', rol: 'admin', estado: 'activo' },
-    { id: '2', email: 'almacen@josafat.com', nombre: 'Juan Pérez', rol: 'almacenero', estado: 'activo' },
-    { id: '3', email: 'produccion@josafat.com', nombre: 'María López', rol: 'produccion', estado: 'activo' },
-  ]);
-
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<Usuario | null>(null);
-  const [formData, setFormData] = useState<Partial<Usuario>>({
-    email: '',
-    nombre: '',
-    rol: 'produccion',
-    estado: 'activo',
-  });
-
   const filteredUsers = users.filter(u =>
     u.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
@@ -79,51 +120,130 @@ const Users = () => {
 
   const handleAdd = () => {
     setEditingUser(null);
-    setFormData({ email: '', nombre: '', rol: 'produccion', estado: 'activo' });
+    setFormData({ email: '', nombre: '', password: '', rol: 'produccion' });
     setIsDialogOpen(true);
   };
 
   const handleEdit = (usuario: Usuario) => {
     setEditingUser(usuario);
-    setFormData(usuario);
+    setFormData({ 
+      email: usuario.email, 
+      nombre: usuario.nombre, 
+      password: '', 
+      rol: usuario.roles[0] || 'produccion' 
+    });
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('¿Estás seguro de eliminar este usuario?')) {
-      setUsers(users.filter(u => u.id !== id));
+  const handleDelete = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar este usuario?')) {
+      return;
+    }
+
+    try {
+      // Eliminar roles del usuario
+      const { error: rolesError } = await supabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', id);
+
+      if (rolesError) throw rolesError;
+
+      // Eliminar perfil
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', id);
+
+      if (profileError) throw profileError;
+
       toast.success('Usuario eliminado correctamente');
+      loadUsers();
+    } catch (error) {
+      console.error('Error deleting user');
+      toast.error('No se pudo eliminar el usuario');
     }
   };
 
-  const handleSubmit = () => {
-    if (!formData.email || !formData.nombre || !formData.rol) {
+  const handleSubmit = async () => {
+    if (!formData.email || !formData.nombre || (!editingUser && !formData.password)) {
       toast.error('Por favor completa todos los campos obligatorios');
       return;
     }
 
-    if (editingUser) {
-      setUsers(users.map(u => u.id === editingUser.id ? { ...u, ...formData as Usuario } : u));
-      toast.success('Usuario actualizado correctamente');
-    } else {
-      const newUser: Usuario = {
-        id: Date.now().toString(),
-        ...formData as Usuario,
-      };
-      setUsers([...users, newUser]);
-      toast.success('Usuario agregado correctamente');
-    }
+    try {
+      if (editingUser) {
+        // Actualizar usuario existente
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({ nombre: formData.nombre })
+          .eq('id', editingUser.id);
 
-    setIsDialogOpen(false);
+        if (profileError) throw profileError;
+
+        // Actualizar rol
+        await supabase
+          .from('user_roles')
+          .delete()
+          .eq('user_id', editingUser.id);
+
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .insert({ user_id: editingUser.id, role: formData.rol });
+
+        if (roleError) throw roleError;
+
+        toast.success('Usuario actualizado correctamente');
+      } else {
+        // Crear nuevo usuario
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: formData.email,
+          password: formData.password,
+          options: {
+            data: {
+              nombre: formData.nombre,
+            },
+            emailRedirectTo: `${window.location.origin}/`,
+          },
+        });
+
+        if (authError) throw authError;
+        if (!authData.user) throw new Error('No se pudo crear el usuario');
+
+        // Asignar rol
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .insert({ user_id: authData.user.id, role: formData.rol });
+
+        if (roleError) throw roleError;
+
+        toast.success('Usuario creado correctamente');
+      }
+
+      setIsDialogOpen(false);
+      loadUsers();
+    } catch (error: any) {
+      console.error('Error saving user');
+      toast.error(error.message || 'No se pudo guardar el usuario');
+    }
   };
 
-  const getRoleBadge = (rol: UserRole) => {
+  const getRoleBadge = (roles: UserRole[]) => {
     const styles = {
       admin: 'bg-destructive/10 text-destructive',
       almacenero: 'bg-primary/10 text-primary',
       produccion: 'bg-success/10 text-success',
     };
-    return styles[rol];
+    return styles[roles[0]] || styles.produccion;
+  };
+
+  const getRoleLabel = (role: UserRole) => {
+    const labels = {
+      admin: 'Administrador',
+      almacenero: 'Almacenero',
+      produccion: 'Producción',
+    };
+    return labels[role];
   };
 
   return (
@@ -161,50 +281,54 @@ const Users = () => {
                 <TableHead>Nombre</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Rol</TableHead>
-                <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredUsers.map((usuario) => (
-                <TableRow key={usuario.id}>
-                  <TableCell className="font-medium">{usuario.nombre}</TableCell>
-                  <TableCell>{usuario.email}</TableCell>
-                  <TableCell>
-                    <span className={`text-xs font-medium px-2 py-1 rounded capitalize ${getRoleBadge(usuario.rol)}`}>
-                      {usuario.rol}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <span className={`text-xs font-medium px-2 py-1 rounded capitalize ${
-                      usuario.estado === 'activo' 
-                        ? 'bg-success/10 text-success' 
-                        : 'bg-muted text-muted-foreground'
-                    }`}>
-                      {usuario.estado}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEdit(usuario)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDelete(usuario.id)}
-                        disabled={usuario.id === user?.id}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center py-8">
+                    Cargando usuarios...
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : filteredUsers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center py-8">
+                    No se encontraron usuarios
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredUsers.map((usuario) => (
+                  <TableRow key={usuario.id}>
+                    <TableCell className="font-medium">{usuario.nombre}</TableCell>
+                    <TableCell>{usuario.email}</TableCell>
+                    <TableCell>
+                      <span className={`text-xs font-medium px-2 py-1 rounded capitalize ${getRoleBadge(usuario.roles)}`}>
+                        {getRoleLabel(usuario.roles[0] || 'produccion')}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleEdit(usuario)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDelete(usuario.id)}
+                          disabled={usuario.id === user?.id}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
@@ -237,51 +361,39 @@ const Users = () => {
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 placeholder="usuario@josafat.com"
+                disabled={!!editingUser}
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="rol">Rol *</Label>
-                <Select
-                  value={formData.rol}
-                  onValueChange={(value: UserRole) => setFormData({ ...formData, rol: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona un rol" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">Administrador</SelectItem>
-                    <SelectItem value="almacenero">Almacenero</SelectItem>
-                    <SelectItem value="produccion">Producción</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="estado">Estado *</Label>
-                <Select
-                  value={formData.estado}
-                  onValueChange={(value: 'activo' | 'inactivo') => setFormData({ ...formData, estado: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecciona estado" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="activo">Activo</SelectItem>
-                    <SelectItem value="inactivo">Inactivo</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
             {!editingUser && (
-              <div className="bg-muted p-3 rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  <strong>Nota:</strong> La contraseña inicial será generada automáticamente y enviada al email del usuario.
-                </p>
+              <div className="space-y-2">
+                <Label htmlFor="password">Contraseña *</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  placeholder="••••••••"
+                />
               </div>
             )}
+
+            <div className="space-y-2">
+              <Label htmlFor="rol">Rol *</Label>
+              <Select
+                value={formData.rol}
+                onValueChange={(value: UserRole) => setFormData({ ...formData, rol: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un rol" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Administrador</SelectItem>
+                  <SelectItem value="almacenero">Almacenero</SelectItem>
+                  <SelectItem value="produccion">Producción</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
