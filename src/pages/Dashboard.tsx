@@ -1,14 +1,66 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Package, Users, TrendingUp, AlertCircle } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useEffect, useState } from 'react';
+import { Skeleton } from '@/components/ui/skeleton';
+
+interface Material {
+  id: string;
+  codigo: string;
+  nombre: string;
+  stock: number;
+  stock_minimo: number;
+  created_at: string;
+}
 
 const Dashboard = () => {
   const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [totalMateriales, setTotalMateriales] = useState(0);
+  const [stockBajo, setStockBajo] = useState(0);
+  const [totalUsuarios, setTotalUsuarios] = useState(0);
+  const [materialesBajoStock, setMaterialesBajoStock] = useState<Material[]>([]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  const loadDashboardData = async () => {
+    try {
+      // Cargar materiales
+      const { data: materiales, error: materialesError } = await supabase
+        .from('materiales')
+        .select('*');
+
+      if (materialesError) throw materialesError;
+
+      // Calcular estadísticas
+      setTotalMateriales(materiales?.length || 0);
+      
+      const bajoStock = materiales?.filter(m => m.stock <= m.stock_minimo) || [];
+      setStockBajo(bajoStock.length);
+      setMaterialesBajoStock(bajoStock.slice(0, 3)); // Solo los primeros 3
+
+      // Cargar usuarios
+      const { count: usuariosCount, error: usuariosError } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true });
+
+      if (usuariosError) throw usuariosError;
+      setTotalUsuarios(usuariosCount || 0);
+
+    } catch (error) {
+      console.error('Error cargando datos del dashboard');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const stats = [
     {
       title: 'Total Materiales',
-      value: '156',
+      value: totalMateriales.toString(),
       description: 'Materiales registrados',
       icon: Package,
       color: 'text-primary',
@@ -16,7 +68,7 @@ const Dashboard = () => {
     },
     {
       title: 'Stock Bajo',
-      value: '12',
+      value: stockBajo.toString(),
       description: 'Requieren reabastecimiento',
       icon: AlertCircle,
       color: 'text-warning',
@@ -24,7 +76,7 @@ const Dashboard = () => {
     },
     {
       title: 'Usuarios Activos',
-      value: '8',
+      value: totalUsuarios.toString(),
       description: 'En el sistema',
       icon: Users,
       color: 'text-success',
@@ -32,7 +84,7 @@ const Dashboard = () => {
     },
     {
       title: 'Movimientos Hoy',
-      value: '24',
+      value: '0',
       description: 'Entradas y salidas',
       icon: TrendingUp,
       color: 'text-accent',
@@ -52,24 +104,39 @@ const Dashboard = () => {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat, index) => (
-          <Card key={index} className="hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {stat.title}
-              </CardTitle>
-              <div className={`${stat.bgColor} p-2 rounded-lg`}>
-                <stat.icon className={`h-4 w-4 ${stat.color}`} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-foreground">{stat.value}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {stat.description}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
+        {loading ? (
+          Array(4).fill(0).map((_, index) => (
+            <Card key={index}>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-8 w-8 rounded-lg" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-16 mb-2" />
+                <Skeleton className="h-3 w-32" />
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          stats.map((stat, index) => (
+            <Card key={index} className="hover:shadow-md transition-shadow">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  {stat.title}
+                </CardTitle>
+                <div className={`${stat.bgColor} p-2 rounded-lg`}>
+                  <stat.icon className={`h-4 w-4 ${stat.color}`} />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-foreground">{stat.value}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {stat.description}
+                </p>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -80,21 +147,9 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {[
-                { accion: 'Entrada', material: 'Tela algodón', cantidad: '50 m', tiempo: 'Hace 2 horas' },
-                { accion: 'Salida', material: 'Hilo poliéster', cantidad: '20 kg', tiempo: 'Hace 4 horas' },
-                { accion: 'Entrada', material: 'Botones plástico', cantidad: '1000 unid', tiempo: 'Hace 6 horas' },
-              ].map((item, index) => (
-                <div key={index} className="flex items-center justify-between py-2 border-b last:border-0">
-                  <div>
-                    <p className="font-medium text-foreground">{item.material}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {item.accion} - {item.cantidad}
-                    </p>
-                  </div>
-                  <span className="text-xs text-muted-foreground">{item.tiempo}</span>
-                </div>
-              ))}
+              <div className="text-center py-8 text-muted-foreground">
+                <p className="text-sm">Sistema de movimientos en desarrollo</p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -106,27 +161,36 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {[
-                { material: 'Tela denim', stock: '15 m', minimo: '50 m', nivel: 'Crítico' },
-                { material: 'Cremalleras metálicas', stock: '80 unid', minimo: '200 unid', nivel: 'Bajo' },
-                { material: 'Etiquetas bordadas', stock: '120 unid', minimo: '300 unid', nivel: 'Bajo' },
-              ].map((item, index) => (
-                <div key={index} className="flex items-center justify-between py-2 border-b last:border-0">
-                  <div>
-                    <p className="font-medium text-foreground">{item.material}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Stock: {item.stock} / Mínimo: {item.minimo}
-                    </p>
+              {loading ? (
+                Array(3).fill(0).map((_, index) => (
+                  <div key={index} className="py-2 border-b last:border-0">
+                    <Skeleton className="h-5 w-full mb-2" />
+                    <Skeleton className="h-4 w-3/4" />
                   </div>
-                  <span className={`text-xs font-medium px-2 py-1 rounded ${
-                    item.nivel === 'Crítico' 
-                      ? 'bg-destructive/10 text-destructive' 
-                      : 'bg-warning/10 text-warning'
-                  }`}>
-                    {item.nivel}
-                  </span>
+                ))
+              ) : materialesBajoStock.length > 0 ? (
+                materialesBajoStock.map((material) => (
+                  <div key={material.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                    <div>
+                      <p className="font-medium text-foreground">{material.nombre}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Stock: {Number(material.stock).toFixed(2)} / Mínimo: {Number(material.stock_minimo).toFixed(2)}
+                      </p>
+                    </div>
+                    <span className={`text-xs font-medium px-2 py-1 rounded ${
+                      material.stock === 0
+                        ? 'bg-destructive/10 text-destructive' 
+                        : 'bg-warning/10 text-warning'
+                    }`}>
+                      {material.stock === 0 ? 'Crítico' : 'Bajo'}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p className="text-sm">No hay materiales con stock bajo</p>
                 </div>
-              ))}
+              )}
             </div>
           </CardContent>
         </Card>
