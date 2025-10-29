@@ -7,6 +7,7 @@ import {
   LogOut,
   ChevronLeft,
   Factory,
+  ArrowLeftRight,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -25,6 +26,7 @@ import { Button } from '@/components/ui/button';
 const menuItems = [
   { title: 'Dashboard', url: '/dashboard', icon: LayoutDashboard, roles: ['admin', 'almacenero', 'produccion'] },
   { title: 'Materiales', url: '/materiales', icon: Package, roles: ['admin', 'almacenero', 'produccion'] },
+  { title: 'Movimientos', url: '/movimientos', icon: ArrowLeftRight, roles: ['admin', 'almacenero', 'produccion'] },
   { title: 'Usuarios', url: '/usuarios', icon: Users, roles: ['admin'] },
 ];
 

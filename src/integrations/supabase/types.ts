@@ -56,6 +56,44 @@ export type Database = {
         }
         Relationships: []
       }
+      movimientos: {
+        Row: {
+          cantidad: number
+          created_at: string
+          created_by: string
+          id: string
+          material_id: string
+          motivo: string | null
+          tipo: Database["public"]["Enums"]["tipo_movimiento"]
+        }
+        Insert: {
+          cantidad: number
+          created_at?: string
+          created_by: string
+          id?: string
+          material_id: string
+          motivo?: string | null
+          tipo: Database["public"]["Enums"]["tipo_movimiento"]
+        }
+        Update: {
+          cantidad?: number
+          created_at?: string
+          created_by?: string
+          id?: string
+          material_id?: string
+          motivo?: string | null
+          tipo?: Database["public"]["Enums"]["tipo_movimiento"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "movimientos_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "materiales"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -116,6 +154,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "almacenero" | "produccion"
+      tipo_movimiento: "entrada" | "salida"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -244,6 +283,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "almacenero", "produccion"],
+      tipo_movimiento: ["entrada", "salida"],
     },
   },
 } as const

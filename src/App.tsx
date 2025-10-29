@@ -7,6 +7,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Materials from "./pages/Materials";
+import Movements from "./pages/Movements";
 import Users from "./pages/Users";
 import DashboardLayout from "./components/DashboardLayout";
 import NotFound from "./pages/NotFound";
@@ -26,6 +27,7 @@ const App = () => (
             <Route element={<DashboardLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/materiales" element={<Materials />} />
+              <Route path="/movimientos" element={<Movements />} />
               <Route path="/usuarios" element={<Users />} />
             </Route>
             <Route path="*" element={<NotFound />} />

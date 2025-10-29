@@ -14,13 +14,26 @@ interface Material {
   created_at: string;
 }
 
+interface Movement {
+  id: string;
+  tipo: 'entrada' | 'salida';
+  cantidad: number;
+  created_at: string;
+  materiales: {
+    nombre: string;
+    unidad: string;
+  };
+}
+
 const Dashboard = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [totalMateriales, setTotalMateriales] = useState(0);
   const [stockBajo, setStockBajo] = useState(0);
   const [totalUsuarios, setTotalUsuarios] = useState(0);
+  const [movimientosHoy, setMovimientosHoy] = useState(0);
   const [materialesBajoStock, setMaterialesBajoStock] = useState<Material[]>([]);
+  const [recentMovements, setRecentMovements] = useState<Movement[]>([]);
 
   useEffect(() => {
     loadDashboardData();
@@ -49,6 +62,24 @@ const Dashboard = () => {
 
       if (usuariosError) throw usuariosError;
       setTotalUsuarios(usuariosCount || 0);
+
+      // Cargar movimientos
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+
+      const { data: movimientos, error: movimientosError } = await supabase
+        .from('movimientos')
+        .select(`
+          *,
+          materiales(nombre, unidad)
+        `)
+        .gte('created_at', hoy.toISOString())
+        .order('created_at', { ascending: false });
+
+      if (movimientosError) throw movimientosError;
+      
+      setMovimientosHoy(movimientos?.length || 0);
+      setRecentMovements((movimientos || []).slice(0, 5));
 
     } catch (error) {
       console.error('Error cargando datos del dashboard');
@@ -84,7 +115,7 @@ const Dashboard = () => {
     },
     {
       title: 'Movimientos Hoy',
-      value: '0',
+      value: movimientosHoy.toString(),
       description: 'Entradas y salidas',
       icon: TrendingUp,
       color: 'text-accent',
@@ -147,9 +178,37 @@ const Dashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="text-center py-8 text-muted-foreground">
-                <p className="text-sm">Sistema de movimientos en desarrollo</p>
-              </div>
+              {loading ? (
+                Array(3).fill(0).map((_, index) => (
+                  <div key={index} className="py-2 border-b last:border-0">
+                    <Skeleton className="h-5 w-full mb-2" />
+                    <Skeleton className="h-4 w-3/4" />
+                  </div>
+                ))
+              ) : recentMovements.length > 0 ? (
+                recentMovements.map((movement) => {
+                  const timeAgo = Math.floor((Date.now() - new Date(movement.created_at).getTime()) / 60000);
+                  const timeText = timeAgo < 60 
+                    ? `Hace ${timeAgo} min` 
+                    : `Hace ${Math.floor(timeAgo / 60)} h`;
+                  
+                  return (
+                    <div key={movement.id} className="flex items-center justify-between py-2 border-b last:border-0">
+                      <div>
+                        <p className="font-medium text-foreground">{movement.materiales.nombre}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {movement.tipo === 'entrada' ? 'Entrada' : 'Salida'} - {Number(movement.cantidad).toFixed(2)} {movement.materiales.unidad}
+                        </p>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{timeText}</span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p className="text-sm">No hay movimientos registrados hoy</p>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
